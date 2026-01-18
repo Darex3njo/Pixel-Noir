@@ -1,11 +1,12 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { GamePhase, Scenario, Suspect, Clue, ChatMessage, GameMode, Difficulty, AutoDetectiveAction, Language } from './types';
+import { GamePhase, Scenario, Suspect, Clue, ChatMessage, GameMode, Difficulty, AutoDetectiveAction, Language, GameStats } from './types';
 import * as GeminiService from './services/geminiService';
 import { RetroButton } from './components/RetroButton';
 import { PixelCard } from './components/PixelCard';
 import { TypewriterText } from './components/TypewriterText';
 import { soundManager } from './utils/SoundManager';
-import { Search, MessageSquare, AlertTriangle, Play, RefreshCw, Archive, Clock, Skull, FileText, Bot, User, ShieldAlert, MonitorPlay, Brain, Fingerprint, Globe, MapPin, Sword, Volume2, VolumeX } from 'lucide-react';
+import { getStats, updateStats } from './utils/StorageManager';
+import { Search, MessageSquare, AlertTriangle, Play, RefreshCw, Archive, Clock, Skull, FileText, Bot, User, ShieldAlert, MonitorPlay, Brain, Fingerprint, Globe, MapPin, Sword, Volume2, VolumeX, Trophy, History } from 'lucide-react';
 
 // Translations Dictionary
 const t = {
@@ -70,7 +71,11 @@ const t = {
     yourSecret: "YOUR SECRET",
     evadeMsg: "Don't get caught.",
     talked: "TALKED",
-    you: "YOU"
+    you: "YOU",
+    career: "DETECTIVE CAREER",
+    solved: "Solved",
+    failed: "Failed",
+    rank: "Rank"
   },
   [Language.ARABIC]: {
     title: "بكسل نوار",
@@ -133,7 +138,11 @@ const t = {
     yourSecret: "سرك",
     evadeMsg: "لا تدعهم يمسكون بك.",
     talked: "تم استجوابه",
-    you: "أنت"
+    you: "أنت",
+    career: "مسيرة المحقق",
+    solved: "تم حلها",
+    failed: "فشلت",
+    rank: "الرتبة"
   },
   [Language.DUTCH]: {
     title: "PIXEL NOIR",
@@ -196,7 +205,11 @@ const t = {
     yourSecret: "JOUW GEHEIM",
     evadeMsg: "Laat je niet pakken.",
     talked: "GESPROKEN",
-    you: "JIJ"
+    you: "JIJ",
+    career: "DETECTIVE CARRIÈRE",
+    solved: "Opgelost",
+    failed: "Mislukt",
+    rank: "Rang"
   }
 };
 
@@ -211,7 +224,8 @@ const App: React.FC = () => {
   const [phase, setPhase] = useState<GamePhase>(GamePhase.MENU);
   const [scenario, setScenario] = useState<Scenario | null>(null);
   const [loadingMessage, setLoadingMessage] = useState<string>("");
-  
+  const [stats, setStats] = useState<GameStats>({ casesSolved: 0, casesFailed: 0, totalPlaytimeMinutes: 0, rank: "Rookie" });
+
   // Gameplay State
   const [elapsedMinutes, setElapsedMinutes] = useState(0);
   const [maxTime, setMaxTime] = useState(480);
@@ -232,6 +246,11 @@ const App: React.FC = () => {
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   const boardRef = useRef<HTMLDivElement>(null);
+
+  // Load stats on mount
+  useEffect(() => {
+    setStats(getStats());
+  }, []);
 
   // Initialize Sound on Mount/Interaction
   useEffect(() => {
@@ -289,10 +308,42 @@ const App: React.FC = () => {
     const newTime = elapsedMinutes + minutes;
     if (newTime >= maxTime) {
       setElapsedMinutes(maxTime);
-      setPhase(GamePhase.TIMEOUT);
+      handleGameEnd(false, true); // Timeout
     } else {
       setElapsedMinutes(newTime);
     }
+  };
+
+  // Centralized Game End Handler
+  const handleGameEnd = (isWin: boolean, isTimeout: boolean = false) => {
+      // Calculate outcome for stats
+      // Detective: Win = Solved, Loss = Failed/Timeout
+      // Victim: Win = Solved (AI won), Loss = Failed
+      // Killer: Win = Failed (Detective failed), Loss = Solved (Detective caught you)
+      
+      let statWin = false;
+      if (gameMode === GameMode.DETECTIVE || gameMode === GameMode.VICTIM) {
+          statWin = isWin;
+      } else {
+          // Killer Mode: You win if the detective fails
+          statWin = !isWin;
+      }
+
+      // Update Phase
+      if (isTimeout) {
+          setPhase(GamePhase.TIMEOUT);
+          soundManager.playSFX('FAIL');
+      } else if (isWin) {
+          setPhase(GamePhase.SOLVED);
+          soundManager.playSFX(gameMode === GameMode.KILLER ? 'FAIL' : 'SUCCESS'); // Sad sound if you are killer and got caught
+      } else {
+          setPhase(GamePhase.FAILED);
+          soundManager.playSFX(gameMode === GameMode.KILLER ? 'SUCCESS' : 'FAIL'); // Happy sound if you are killer and escaped
+      }
+
+      // Save Stats
+      const newStats = updateStats(statWin, elapsedMinutes);
+      setStats(newStats);
   };
 
   // Start a new game
@@ -551,24 +602,20 @@ const App: React.FC = () => {
     // Logic for Detective Mode (Player Accusing)
     if (gameMode === GameMode.DETECTIVE) {
         if (suspect.isKiller) {
-            setPhase(GamePhase.SOLVED);
-            soundManager.playSFX('SUCCESS');
+            handleGameEnd(true);
         } else {
-            setPhase(GamePhase.FAILED);
-            soundManager.playSFX('FAIL');
             setAccuseError(`You arrested ${suspect.name}. But ${scenario.victimName}'s true killer watched from the shadows.`);
+            handleGameEnd(false);
         }
     } 
     // Logic for AI Accusing (Victim/Killer Mode)
     else {
-        // If Killer Mode, and AI accuses Killer (You) -> SOLVED = You Caught (Bad)
-        // If Killer Mode, and AI accuses Incorrect -> FAILED = You Escaped (Good)
+        // If Killer Mode, and AI accuses Killer (You) -> SOLVED = You Caught (Bad for you)
+        // If Killer Mode, and AI accuses Incorrect -> FAILED = You Escaped (Good for you)
         if (suspect.isKiller) {
-             setPhase(GamePhase.SOLVED);
-             soundManager.playSFX(gameMode === GameMode.KILLER ? 'FAIL' : 'SUCCESS');
+             handleGameEnd(true); // AI Won
         } else {
-             setPhase(GamePhase.FAILED);
-             soundManager.playSFX(gameMode === GameMode.KILLER ? 'SUCCESS' : 'FAIL');
+             handleGameEnd(false); // AI Lost
         }
     }
   };
@@ -601,7 +648,7 @@ const App: React.FC = () => {
           {txt.title}
         </h1>
         
-        <div className="bg-slate-800 border-4 border-slate-600 p-8 max-w-4xl w-full flex flex-col gap-6 shadow-2xl z-10">
+        <div className="bg-slate-800 border-4 border-slate-600 p-8 max-w-5xl w-full flex flex-col gap-6 shadow-2xl z-10">
             {/* Settings UI... */}
             <div className="flex justify-center gap-2 mb-2">
                  {Object.values(Language).map((lang) => (
@@ -615,9 +662,9 @@ const App: React.FC = () => {
                  ))}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                 {/* MODE SELECT */}
-                <div>
+                <div className="md:col-span-1">
                    <h3 className="text-xl text-yellow-400 font-pixel-header mb-4 flex items-center gap-2"><MonitorPlay size={20}/> {txt.mode}</h3>
                    <div className="flex flex-col gap-2">
                        <button onClick={() => { setGameMode(GameMode.DETECTIVE); soundManager.playSFX('CLICK'); }} className={`p-4 border-2 text-start transition-all ${gameMode === GameMode.DETECTIVE ? 'border-green-500 bg-green-900/20 text-green-100' : 'border-slate-600 hover:border-slate-400 text-slate-400'}`}>
@@ -635,13 +682,38 @@ const App: React.FC = () => {
                    </div>
                 </div>
 
-                {/* DIFFICULTY SELECT */}
-                <div>
-                   <h3 className="text-xl text-red-400 font-pixel-header mb-4 flex items-center gap-2"><ShieldAlert size={20}/> {txt.diff}</h3>
-                   <div className="flex flex-col gap-2">
-                       {Object.values(Difficulty).map((diff) => (
-                           <button key={diff} onClick={() => { setDifficulty(diff); soundManager.playSFX('CLICK'); }} className={`p-3 border-2 text-center transition-all font-mono uppercase font-bold ${difficulty === diff ? 'border-red-500 bg-red-900/20 text-red-100' : 'border-slate-600 hover:border-slate-400 text-slate-500'}`}>{diff}</button>
-                       ))}
+                {/* DIFFICULTY & STATS SELECT */}
+                <div className="md:col-span-2 flex flex-col gap-8">
+                    <div>
+                        <h3 className="text-xl text-red-400 font-pixel-header mb-4 flex items-center gap-2"><ShieldAlert size={20}/> {txt.diff}</h3>
+                        <div className="grid grid-cols-3 gap-2">
+                            {Object.values(Difficulty).map((diff) => (
+                                <button key={diff} onClick={() => { setDifficulty(diff); soundManager.playSFX('CLICK'); }} className={`p-3 border-2 text-center transition-all font-mono uppercase font-bold ${difficulty === diff ? 'border-red-500 bg-red-900/20 text-red-100' : 'border-slate-600 hover:border-slate-400 text-slate-500'}`}>{diff}</button>
+                            ))}
+                        </div>
+                   </div>
+
+                   {/* PLAYER STATS CARD */}
+                   <div className="bg-black/40 border-2 border-slate-700 p-4">
+                        <h3 className="text-lg text-blue-400 font-pixel-header mb-4 flex items-center gap-2"><Trophy size={20}/> {txt.career}</h3>
+                        <div className="grid grid-cols-2 gap-4 font-mono">
+                            <div>
+                                <div className="text-slate-500 text-xs uppercase tracking-wider">{txt.rank}</div>
+                                <div className="text-xl text-yellow-500 font-bold">{stats.rank}</div>
+                            </div>
+                            <div>
+                                <div className="text-slate-500 text-xs uppercase tracking-wider">Playtime</div>
+                                <div className="text-xl text-slate-300">{Math.floor(stats.totalPlaytimeMinutes)}m</div>
+                            </div>
+                            <div>
+                                <div className="text-slate-500 text-xs uppercase tracking-wider">{txt.solved}</div>
+                                <div className="text-xl text-green-500 font-bold">{stats.casesSolved}</div>
+                            </div>
+                            <div>
+                                <div className="text-slate-500 text-xs uppercase tracking-wider">{txt.failed}</div>
+                                <div className="text-xl text-red-500 font-bold">{stats.casesFailed}</div>
+                            </div>
+                        </div>
                    </div>
                 </div>
             </div>

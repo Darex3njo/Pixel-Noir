@@ -1,3 +1,4 @@
+
 export enum GamePhase {
   MENU,
   LOADING,
@@ -25,6 +26,13 @@ export enum Language {
   ENGLISH = 'English',
   ARABIC = 'Arabic',
   DUTCH = 'Dutch',
+}
+
+export interface GameStats {
+  casesSolved: number;
+  casesFailed: number;
+  totalPlaytimeMinutes: number;
+  rank: string;
 }
 
 export interface Suspect {

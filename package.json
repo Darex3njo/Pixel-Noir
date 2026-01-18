@@ -1,23 +1,62 @@
 {
-  "name": "pixel-noir:-ai-detective",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
+  "name": "pixel-noir-detective",
+  "productName": "Pixel Noir",
+  "version": "1.0.0",
+  "description": "A procedurally generated pixel-art murder mystery game.",
+  "main": "main.js",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "start": "npm run build && electron .",
+    "make": "electron-forge make"
   },
   "dependencies": {
-    "@google/genai": "^1.37.0",
-    "react": "^19.2.3",
-    "react-dom": "^19.2.3",
-    "lucide-react": "^0.562.0"
+    "@google/genai": "^0.1.0",
+    "lucide-react": "^0.344.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
-    "@types/node": "^22.14.0",
-    "@vitejs/plugin-react": "^5.0.0",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "@electron-forge/cli": "^7.3.0",
+    "@electron-forge/maker-deb": "^7.3.0",
+    "@electron-forge/maker-rpm": "^7.3.0",
+    "@electron-forge/maker-squirrel": "^7.3.0",
+    "@electron-forge/maker-zip": "^7.3.0",
+    "@types/react": "^18.2.64",
+    "@types/react-dom": "^18.2.21",
+    "@vitejs/plugin-react": "^4.2.1",
+    "electron": "^29.1.0",
+    "typescript": "^5.4.2",
+    "vite": "^5.1.5"
+  },
+  "config": {
+    "forge": {
+      "packagerConfig": {
+        "icon": "./icon"
+      },
+      "makers": [
+        {
+          "name": "@electron-forge/maker-squirrel",
+          "config": {
+            "name": "pixel_noir"
+          }
+        },
+        {
+          "name": "@electron-forge/maker-zip",
+          "platforms": [
+            "darwin"
+          ]
+        },
+        {
+          "name": "@electron-forge/maker-deb",
+          "config": {}
+        },
+        {
+          "name": "@electron-forge/maker-rpm",
+          "config": {}
+        }
+      ]
+    }
   }
 }
